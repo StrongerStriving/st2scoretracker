@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Theo dõi điểm người chơi</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+      body { 
+          font-family: Arial, sans-serif; 
+          margin: 0;
+          padding: 10px;
+          box-sizing: border-box;
+          max-width: 100%;
+          overflow-x: hidden;
+      }
+      .container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          width: 100%;
+      }
+      h1 { 
+          font-size: 1.8em; 
+          text-align: center;
+      }
+      .input-group {
+          display: flex;
+          flex-direction: column;
+          width: 100%;
+          max-width: 250px;
+          margin-top: 20px;
+      }
+      .input-group input, .input-group button {
+          font-size: 0.9em;
+          padding: 8px;
+          margin-bottom: 8px;
+      }
+      table { 
+          width: 100%; 
+          border-collapse: collapse; 
+          margin-bottom: 20px; 
+          font-size: 1.2em;
+      }
+      th, td { 
+          border: 1px solid #ddd; 
+          padding: 15px; 
+          text-align: left; 
+      }
+      .player-name {
+          font-size: 1.4em;
+          font-weight: bold;
+          padding: 8px 15px;
+          border-radius: 5px;
+          color: white;
+          display: inline-block;
+          margin-bottom: 5px;
+      }
+      .player-score {
+          font-size: 1.4em;
+          font-weight: bold;
+          margin-right: 10px;
+      }
+      .score-button {
+          font-size: 1.5em;
+          width: 50px;
+          height: 50px;
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+          margin: 0 5px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: background-color 0.3s, transform 0.1s;
+      }
+      .score-button:active {
+          transform: scale(0.95);
+      }
+      .score-button.plus {
+          background-color: #1E90FF; /* Deep blue */
+          color: white;
+      }
+      .score-button.minus {
+          background-color: #87CEFA; /* Light blue */
+          color: white;
+      }
+      .edit-delete-button {
+          font-size: 1em;
+          padding: 5px 8px;
+          margin: 0 2px;
+          border: none;
+          background: none;
+          cursor: pointer;
+      }
+      .action-buttons {
+          margin-top: 10px;
+      }
+      button { 
+          margin: 5px; 
+          padding: 10px; 
+          font-size: 1em;
+          touch-action: manipulation;
+          cursor: pointer;
+      }
+      .chart-container {
+          position: relative;
+          height: 50vh;
+          width: 100%;
+          margin-bottom: 20px;
+      }
+      .modal {
+          display: none;
+          position: fixed;
+          z-index: 1;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          overflow: auto;
+          background-color: rgba(0,0,0,0.4);
+      }
+      .modal-content {
+          background-color: #fefefe;
+          margin: 15% auto;
+          padding: 20px;
+          border: 1px solid #888;
+          width: 80%;
+          max-width: 500px;
+      }
+      .close {
+          color: #aaa;
+          float: right;
+          font-size: 28px;
+          font-weight: bold;
+          cursor: pointer;
+      }
+      @media (max-width: 600px) {
+          table { font-size: 1em; }
+          .player-name { font-size: 1.2em; }
+          .player-score { font-size: 1.2em; }
+          .score-button { 
+              font-size: 1.3em;
+              width: 40px;
+              height: 40px;
+          }
+          .edit-delete-button { font-size: 0.9em; }
+      }
+  </style>
+</head>
+<body>
+  <div class="container">
+      <h1>Theo dõi điểm người chơi</h1>
+      
+      <table id="scoreTable">
+          <tr>
+              <th>Tên người chơi</th>
+              <th>Điểm số</th>
+              <th>Hành động</th>
+          </tr>
+      </table>
+
+      <div>
+          <button onclick="endWeek()">Kết thúc tuần</button>
+      </div>
+
+      <div class="chart-container">
+          <canvas id="scoreChart"></canvas>
+      </div>
+
+      <div class="input-group">
+          <input type="text" id="playerName" placeholder="Tên người chơi">
+          <input type="number" id="score" placeholder="Điểm số">
+          <button onclick="addScore()">Thêm/Cập nhật điểm</button>
+      </div>
+  </div>
+
+  <div id="editModal" class="modal">
+      <div class="modal-content">
+          <span class="close" onclick="closeModal()">&times;</span>
+          <h2>Chỉnh sửa người chơi</h2>
+          <input type="text" id="editPlayerName" placeholder="Tên mới">
+          <button onclick="saveEdit()">Lưu</button>
+      </div>
+  </div>
+
+  <script>
+      let players = {};
+      let weeklyScores = [];
+      let chart;
+      const colors = [
+          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40',
+          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+      ];
+      let colorIndex = 0;
+      let editingPlayer = '';
+
+      window.onload = function() {
+          loadData();
+          updateTable();
+          updateChart();
+      };
+
+      function addScore() {
+          const name = document.getElementById('playerName').value;
+          const score = parseInt(document.getElementById('score').value);
+          
+          if (name && !isNaN(score)) {
+              if (!players[name]) {
+                  players[name] = {
+                      score: score,
+                      color: colors[colorIndex % colors.length]
+                  };
+                  colorIndex++;
+              } else {
+                  players[name].score += score;
+              }
+              updateTable();
+              saveData();
+          }
+      }
+
+      function updateTable() {
+          const table = document.getElementById('scoreTable');
+          table.innerHTML = `
+              <tr>
+                  <th>Tên người chơi</th>
+                  <th>Điểm số</th>
+                  <th>Hành động</th>
+              </tr>
+          `;
+          
+          for (let name in players) {
+              const row = table.insertRow(-1);
+              const nameCell = row.insertCell(0);
+              nameCell.innerHTML = `<span class="player-name" style="background-color: ${players[name].color};">${name}</span>`;
+              const scoreCell = row.insertCell(1);
+              scoreCell.innerHTML = `<span class="player-score">${players[name].score}</span>`;
+              const actionCell = row.insertCell(2);
+              actionCell.innerHTML = `
+                  <div>
+                      <button class="score-button plus" onclick="adjustScore('${name}', 1)">+</button>
+                      <button class="score-button minus" onclick="adjustScore('${name}', -1)">-</button>
+                  </div>
+                  <div class="action-buttons">
+                      <button class="edit-delete-button" onclick="editPlayer('${name}')">✎</button>
+                      <button class="edit-delete-button" onclick="deletePlayer('${name}')">🗑️</button>
+                  </div>
+              `;
+          }
+      }
+
+      function adjustScore(name, amount) {
+          players[name].score += amount;
+          updateTable();
+          saveData();
+      }
+
+      function editPlayer(name) {
+          editingPlayer = name;
+          document.getElementById('editPlayerName').value = name;
+          document.getElementById('editModal').style.display = 'block';
+      }
+
+      function saveEdit() {
+          const newName = document.getElementById('editPlayerName').value;
+          if (newName && newName !== editingPlayer) {
+              players[newName] = players[editingPlayer];
+              delete players[editingPlayer];
+              weeklyScores.forEach(week => {
+                  if (week[editingPlayer] !== undefined) {
+                      week[newName] = week[editingPlayer];
+                      delete week[editingPlayer];
+                  }
+              });
+              updateTable();
+              updateChart();
+              saveData();
+          }
+          closeModal();
+      }
+
+      function deletePlayer(name) {
+          if (confirm(`Bạn có chắc chắn muốn xóa người chơi "${name}"?`)) {
+              delete players[name];
+              weeklyScores.forEach(week => {
+                  delete week[name];
+              });
+              updateTable();
+              updateChart();
+              saveData();
+          }
+      }
+
+      function closeModal() {
+          document.getElementById('editModal').style.display = 'none';
+      }
+
+      function endWeek() {
+          const weekScores = {};
+          for (let name in players) {
+              weekScores[name] = players[name].score;
+              players[name].score = 0; // Reset score to 0
+          }
+          weeklyScores.push(weekScores);
+          updateTable();
+          updateChart();
+          saveData();
+      }
+
+      function updateChart() {
+          const ctx = document.getElementById('scoreChart').getContext('2d');
+          const labels = weeklyScores.map((_, index) => `Tuần ${index + 1}`);
+          const datasets = Object.keys(players).map(name => ({
+              label: name,
+              data: weeklyScores.map(week => week[name] || 0),
+              fill: false,
+              borderColor: players[name].color,
+              backgroundColor: players[name].color
+          }));
+
+          // Add total score dataset
+          const totalScores = weeklyScores.map(week => 
+              Object.values(week).reduce((sum, score) => sum + score, 0)
+          );
+          datasets.push({
+              label: 'Tổng điểm',
+              data: totalScores,
+              fill: false,
+              borderColor: 'rgba(0, 0, 0, 0.5)',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              borderWidth: 3,
+              borderDash: [5, 5]
+          });
+
+          if (chart) {
+              chart.destroy();
+          }
+
+          chart = new Chart(ctx, {
+              type: 'line',
+              data: {
+                  labels: labels,
+                  datasets: datasets
+              },
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                      title: {
+                          display: true,
+                          text: 'Điểm số theo tuần'
+                      },
+                      legend: {
+                          position: 'bottom'
+                      }
+                  },
+                  scales: {
+                      x: {
+                          ticks: {
+                              maxRotation: 0,
+                              minRotation: 0
+                          }
+                      }
+                  }
+              }
+          });
+      }
+
+      function saveData() {
+          localStorage.setItem('players', JSON.stringify(players));
+          localStorage.setItem('weeklyScores', JSON.stringify(weeklyScores));
+          localStorage.setItem('colorIndex', colorIndex);
+      }
+
+      function loadData() {
+          const savedPlayers = localStorage.getItem('players');
+          const savedWeeklyScores = localStorage.getItem('weeklyScores');
+          const savedColorIndex = localStorage.getItem('colorIndex');
+
+          if (savedPlayers) {
+              players = JSON.parse(savedPlayers);
+          }
+          if (savedWeeklyScores) {
+              weeklyScores = JSON.parse(savedWeeklyScores);
+          }
+          if (savedColorIndex) {
+              colorIndex = parseInt(savedColorIndex);
+          }
+      }
+
+      // Close modal when clicking outside of it
+      window.onclick = function(event) {
+          if (event.target == document.getElementById('editModal')) {
+              closeModal();
+          }
+      }
+  </script>
+</body>
+</html>
